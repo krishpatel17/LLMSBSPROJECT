@@ -89,7 +89,11 @@ test('pagination', async () => {
 });
 
 test('invalid input returns 400', async () => {
-  for (const qs of ['?from=2026-02-01&to=2026-01-01', '?from=bad', '?category=abc', '?category=99', '?limit=500', '?page=0']) {
+  for (const qs of [
+    '?from=2026-02-01&to=2026-01-01', '?from=bad', '?category=abc', '?category=99', '?limit=500', '?page=0',
+    '?from=2026-13-01', '?to=2026-01-32',
+    '?page=99999999999999999999', '?page=92233720368547758&limit=100', '?page=9007199254740991',
+  ]) {
     const { status, body } = await get(qs);
     assert.equal(status, 400, qs);
     assert.ok(body.error, qs);

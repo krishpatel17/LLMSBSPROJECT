@@ -26,6 +26,12 @@ test('rejects bad input', () => {
     { limit: '101' },
     { limit: '-5' },
     { from: ['2026-01-01', '2026-01-02'] },
+    { from: '2026-13-01' },
+    { to: '2026-01-32' },
+    { from: '2026-00-10' },
+    { page: '99999999999999999999' },
+    { page: '9007199254740993' },
+    { page: '9007199254740991', limit: '100' },
   ];
   for (const query of bad) assert.ok(parseFilters(query).error, JSON.stringify(query));
 });
