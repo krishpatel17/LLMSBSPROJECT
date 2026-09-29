@@ -1,0 +1,25 @@
+{
+  "name": "llmsbsproject",
+  "version": "1.0.0",
+  "description": "Transaction history API",
+  "main": "src/app.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krishpatel17/LLMSBSPROJECT.git"
+  },
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/krishpatel17/LLMSBSPROJECT/issues"
+  },
+  "homepage": "https://github.com/krishpatel17/LLMSBSPROJECT#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
