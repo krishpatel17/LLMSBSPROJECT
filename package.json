@@ -4,7 +4,7 @@
   "description": "Transaction history API",
   "main": "src/app.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test \"test/**/*.test.js\""
   },
   "repository": {
     "type": "git",
