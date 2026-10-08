@@ -23,11 +23,16 @@ export function TransactionList({ filters }) {
   const [state, setState] = useState({ status: 'loading', rows: [] });
 
   useEffect(() => {
+    // Abort the previous request on every filter change. Also check `aborted` before
+    // setting state, in case a response lands after we stopped caring about it.
+    const controller = new AbortController();
+    const { signal } = controller;
     setState({ status: 'loading', rows: [] });
-    fetchPage(filters, 1).then(
-      (body) => setState({ status: 'ready', rows: body.data }),
-      () => setState({ status: 'error', rows: [] }),
+    fetchPage(filters, 1, signal).then(
+      (body) => !signal.aborted && setState({ status: 'ready', rows: body.data }),
+      () => !signal.aborted && setState({ status: 'error', rows: [] }),
     );
+    return () => controller.abort();
   }, [filters]);
 
   if (state.status === 'loading') return <p role="status">Loading transactions…</p>;
