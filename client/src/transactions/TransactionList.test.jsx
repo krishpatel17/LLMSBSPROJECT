@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { TransactionList } from './TransactionList.jsx';
 import { EMPTY_FILTERS } from '../filters/urlFilters.js';
 
@@ -136,5 +137,92 @@ describe('TransactionList stale responses', () => {
     const { unmount } = render(<TransactionList filters={EMPTY_FILTERS} />);
     unmount();
     expect(calls[0].signal.aborted).toBe(true);
+  });
+});
+
+describe('TransactionList load more', () => {
+  const rowsFor = (start, n) => Array.from({ length: n }, (_, i) => ({ ...coffee, id: start + i, description: `Txn ${start + i}` }));
+  const pageParam = (call) => new URL(call[0], 'http://localhost').searchParams.get('page');
+
+  test('shows "Load more" only while more results remain', async () => {
+    fetch.mockImplementationOnce(() => Promise.resolve(page(rowsFor(1, 25), { total: 30 })));
+    render(<TransactionList filters={EMPTY_FILTERS} />);
+    expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument();
+  });
+
+  test('hides "Load more" when everything is loaded', async () => {
+    render(<TransactionList filters={EMPTY_FILTERS} />);
+    await screen.findAllByRole('row');
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  test('loads the next page with the same filters and appends it', async () => {
+    fetch
+      .mockImplementationOnce(() => Promise.resolve(page(rowsFor(1, 25), { total: 30 })))
+      .mockImplementationOnce(() => Promise.resolve(page(rowsFor(26, 5), { page: 2, total: 30 })));
+    render(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'txn' }} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Load more' }));
+
+    await screen.findByText('Txn 30');
+    expect(screen.getAllByRole('row')).toHaveLength(31); // header + 30
+    expect(screen.getByText('Txn 1')).toBeInTheDocument();
+    const second = new URL(fetch.mock.calls[1][0], 'http://localhost');
+    expect(second.searchParams.get('page')).toBe('2');
+    expect(second.searchParams.get('q')).toBe('txn');
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  test('keeps rows visible and blocks repeat clicks while the next page loads', async () => {
+    const { fetch: slow, calls } = controlledFetch();
+    vi.stubGlobal('fetch', slow);
+    render(<TransactionList filters={EMPTY_FILTERS} />);
+    await act(async () => calls[0].resolve(page(rowsFor(1, 25), { total: 60 })));
+
+    const button = screen.getByRole('button', { name: 'Load more' });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    expect(calls).toHaveLength(2);
+    expect(button).toBeDisabled();
+    expect(screen.getByText('Txn 1')).toBeInTheDocument();
+  });
+
+  test('a failed next page keeps loaded rows and can be retried', async () => {
+    fetch
+      .mockImplementationOnce(() => Promise.resolve(page(rowsFor(1, 25), { total: 30 })))
+      .mockImplementationOnce(() => Promise.resolve(jsonResponse({ error: 'boom' }, 500)))
+      .mockImplementationOnce(() => Promise.resolve(page(rowsFor(26, 5), { page: 2, total: 30 })));
+    render(<TransactionList filters={EMPTY_FILTERS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t load more/i);
+    expect(screen.getByText('Txn 1')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await screen.findByText('Txn 30');
+    expect(pageParam(fetch.mock.calls[2])).toBe('2');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('changing filters during "Load more" aborts it and starts over at page 1', async () => {
+    const { fetch: slow, calls } = controlledFetch();
+    vi.stubGlobal('fetch', slow);
+    const { rerender } = render(<TransactionList filters={EMPTY_FILTERS} />);
+    await act(async () => calls[0].resolve(page(rowsFor(1, 25), { total: 60 })));
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    rerender(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'refund' }} />);
+    expect(calls[1].signal.aborted).toBe(true);
+    expect(calls[2].url.searchParams.has('page')).toBe(false);
+    await act(async () => calls[2].resolve(page([refund])));
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+    expect(screen.getByText('Refund')).toBeInTheDocument();
+  });
+
+  test('a large result set fetches one page at a time', async () => {
+    fetch.mockImplementation(() => Promise.resolve(page(rowsFor(1, 25), { total: 100000 })));
+    render(<TransactionList filters={EMPTY_FILTERS} />);
+    await screen.findByRole('button', { name: 'Load more' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole('row')).toHaveLength(26);
   });
 });
