@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { TransactionList } from './TransactionList.jsx';
 import { EMPTY_FILTERS } from '../filters/urlFilters.js';
 
@@ -91,5 +91,50 @@ describe('TransactionList states', () => {
     rerender(<TransactionList filters={{ ...EMPTY_FILTERS, category: '1' }} />);
     expect(await screen.findByText('No transactions match your filters')).toBeInTheDocument();
     expect(new URL(fetch.mock.calls.at(-1)[0], 'http://localhost').searchParams.get('category')).toBe('1');
+  });
+});
+
+describe('TransactionList stale responses', () => {
+  test('aborts the previous request when filters change', () => {
+    const { fetch, calls } = controlledFetch();
+    vi.stubGlobal('fetch', fetch);
+    const { rerender } = render(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'c' }} />);
+    rerender(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'coffee' }} />);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(calls[1].signal.aborted).toBe(false);
+  });
+
+  test('a slow response for old filters never replaces the newer results', async () => {
+    // Ignores the abort signal, like a server that answers anyway.
+    const pending = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => pending.push(resolve))));
+    const { rerender } = render(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'c' }} />);
+    rerender(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'coffee' }} />);
+
+    await act(async () => pending[1](page([coffee])));
+    expect(screen.getByText('Latte')).toBeInTheDocument();
+
+    await act(async () => pending[0](page([refund])));
+    expect(screen.getByText('Latte')).toBeInTheDocument();
+    expect(screen.queryByText('Refund')).not.toBeInTheDocument();
+  });
+
+  test('an aborted request does not show the error state', async () => {
+    const { fetch, calls } = controlledFetch();
+    vi.stubGlobal('fetch', fetch);
+    const { rerender } = render(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'c' }} />);
+    rerender(<TransactionList filters={{ ...EMPTY_FILTERS, q: 'coffee' }} />);
+    await act(async () => calls[1].resolve(page([coffee])));
+    expect(screen.getByText('Latte')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('aborts the in-flight request on unmount', () => {
+    const { fetch, calls } = controlledFetch();
+    vi.stubGlobal('fetch', fetch);
+    const { unmount } = render(<TransactionList filters={EMPTY_FILTERS} />);
+    unmount();
+    expect(calls[0].signal.aborted).toBe(true);
   });
 });
